@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Ryan Orendorff - Using ChatGPT to prove math in Agda</title>
+        <link rel="stylesheet" href="../../css/default.css" />
+        <link rel="stylesheet" href="../../css/syntax.css" />
+        <meta property="og:title" content="Using ChatGPT to prove math in Agda" />
+    </head>
+    <body>
+        <header>
+            <div class="logo">
+                <a href="../../">ryan orendorff</a>
+            </div>
+            <nav>
+                <a href="../../archive.html">posts</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <article>
+    <section class="title">
+    Using ChatGPT to prove math in Agda
+    </section>
+    <section class="subtitle">
+    or how to spend hours with an imprecise learner
+    </section>
+
+    <section class="date">
+        Posted on December 16, 2022
+    </section>
+    <section>
+        <!--
+
+Module code to make the rest of the file compile in Agda
+
+```
+open import Agda.Builtin.Nat hiding (_+_)
+
+open import Data.Product
+open import Relation.Nullary
+
+open import Relation.Binary.PropositionalEquality
+open ≡-Reasoning
+
+module GPTAgda where
+
+ℕ : Set
+ℕ = Nat
+```
+
+-->
+<p>I have been playing around with <a href="https://openai.com/blog/chatgpt/">ChatGPT</a>
+(like everyone else). I attempted to get ChatGPT to prove some basic properties
+of mathematics in <a href="https://leanprover-community.github.io/">Lean</a>, but this
+turned out quite poorly. ChatGPT is quite happy to attempt to use a template for a
+proof it has seen—such as the proof that the square root of 2 is irrational—in a
+case where the proof is false for other inputs. In addition, ChatGPT produced
+Lean code that was almost correct but had some bugs in it.</p>
+<p>I am far more familiar with Agda, so I was curious if I could get ChatGPT to
+generate a proper proof that the Agda compiler would accept. In this exercise, I
+managed to get ChatGPT to prove that addition is commutative. But as we will
+see, it makes some interesting stumbles on the way.</p>
+<p>I’ve edited some of the responses from ChatGPT to reduce the amount of
+explanatory text it likes to spit out. Even when I tell it to not explain
+things to me, it really can’t help itself!</p>
+<p>My prompts are in quoted italics, while ChatGPT’s responses are in code block
+sections.</p>
+<h1 id="now-on-with-the-show">Now on with the show!</h1>
+<p><em>“In this exercise, we will be proving properties about simple programs using
+Agda. I would like you to use unicode characters and you have access to the
+standard library for Agda. In addition, please provide only the code related to
+the proofs without explanation. Are you ready?”</em></p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- O_o you ok there ChatGPT?</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Primitive</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">postulate</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">Set</span> <span class="ot">:</span> <span class="dt">Set</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="ot">_</span>∈<span class="ot">_</span> <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="ot">_</span>⊆<span class="ot">_</span> <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="ot">_</span>∪<span class="ot">_</span> <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">_</span>∩<span class="ot">_</span> <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">infixr</span> <span class="dv">40</span> <span class="ot">_</span>∈<span class="ot">_</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">infix</span> <span class="dv">4</span> <span class="ot">_</span>⊆<span class="ot">_</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>⊂<span class="ot">_</span> <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span> <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>A ⊂ B <span class="ot">=</span> A ⊆ B ∧ ¬ <span class="ot">(</span>A ∈ B<span class="ot">)</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>transitivity <span class="ot">:</span> <span class="ot">{</span>A B C <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> A ⊂ B <span class="ot">→</span> B ⊂ C <span class="ot">→</span> A ⊂ C</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>transitivity A ⊂ B B ⊂ C <span class="ot">=</span> B ∈ A ∧ C ∈ B</span></code></pre></div>
+<p>I am curious how this popped into the AI’s statistical mindset, and also why it
+decided to provide this code without prompting. In this case ChatGPT does a few
+odd things to say the least:</p>
+<ol type="1">
+<li>It defines <code>Set : Set</code>. If this were true in Agda, then our proof systems
+would enable paradoxes like <a href="http://liamoc.net/posts/2015-09-10-girards-paradox.html">Russell’s
+paradox</a>! This is
+part of the reason why many theorem proving languages have a <a href="https://agda.readthedocs.io/en/v2.6.2.2/language/universe-levels.html">infinite
+hierarchy of
+universes</a>.</li>
+<li>It only postulates some operators, but assume others (like <code>¬</code> and <code>∧</code>)
+exist.</li>
+<li>The proofs are just bonkers. The definition of <code>⊂</code> and <code>transivitity</code> both
+use the inputs like they are sets (<code>A ⊆ B</code>) and like they are elements (<code>A ∈    B</code>); I assume it meant <code>A = B</code> instead of <code>∈</code>.</li>
+</ol>
+<p>I assume that at some point ChatGPT saw a jumble of symbols related to set
+theory in its training data, along with some classical first order logic
+symbols, and just made a unicode symbol soup out of it. It is impressive that
+it knows some relation between the symbols though!</p>
+<p>Ok, so with that I decided to retry the prompt to get back on track. I got the
+following response.</p>
+<blockquote>
+<p>Yes, I am ready. Please provide the details of the proof that you would like
+me to provide.</p>
+</blockquote>
+<p><em>“Great! Can you define the addition function on natural numbers for me? Please
+define the function using an infix symbol.”</em></p>
+<!-- Copied here because code in block quotes is not parsed as literate Agda code.
+
+```agda
+_+_ : ℕ → ℕ → ℕ
+zero + m = m
+(suc n) + m = suc (n + m)
+```
+
+-->
+<blockquote>
+<p>Here is a possible definition of the addition function on natural numbers
+using infix syntax:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>+<span class="ot">_</span> <span class="ot">:</span> ℕ <span class="ot">→</span> ℕ <span class="ot">→</span> ℕ</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>zero + m <span class="ot">=</span> m</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ot">(</span>suc n<span class="ot">)</span> + m <span class="ot">=</span> suc <span class="ot">(</span>n + m<span class="ot">)</span></span></code></pre></div>
+<p>This function uses pattern matching on the left argument to define the behavior
+of the function for the zero and suc cases. The zero case simply returns the
+right argument, while the suc case recursively applies the function to the
+predecessor of the left argument and the right argument, and wraps the result in
+a suc constructor. This results in the expected behavior for natural number
+addition.</p>
+</blockquote>
+<p>This definition is correct and the explanation is correct, if a bit oddly
+worded. This particular definition occurs so widely in documents talking about
+addition on natural numbers that it is not particularly surprising that we get
+back the correct result.</p>
+<p><em>“Where can I import the symbol ℕ from in the Agda standard library?”</em></p>
+<blockquote>
+<p>The symbol ℕ is defined in the Agda.Builtin.Nat module of the standard library.
+To import this module and use the ℕ symbol, you can add the following import
+statement at the top of your Agda file:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Builtin<span class="ot">.</span>Nat</span></code></pre></div>
+<p>This will make the <code>ℕ</code> symbol available for use in your code. Note that you
+can also use the shorter alias <code>Nat</code> instead of the full module name
+<code>Agda.Builtin.Nat</code> in the import statement.</p>
+</blockquote>
+<p>Note that you <em>can’t</em> access the builtin with just <code>Nat</code> (or I could not on my
+up to date Agda 2.6.2.2 install). So a neat tip, but also not quite a true one.
+In addition, it is more likely that someone using the standard library would use
+the definition of natural numbers exported from the <code>Data.Nat</code> module.</p>
+<p><em>“open import Agda.Builtin.Nat will import Nat, not ℕ. Can you make an
+alias for Nat named ℕ?”</em></p>
+<blockquote>
+<p>Yes, it is possible to create an alias for the <code>Nat</code> symbol with the name <code>ℕ</code>
+in Agda. Here is an example of how you can do this:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Builtin<span class="ot">.</span>Nat</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>ℕ <span class="ot">:</span> <span class="dt">Set</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>ℕ <span class="ot">=</span> Nat</span></code></pre></div>
+</blockquote>
+<p>This is interesting, as the chat bot has picked up the relation between the two
+tokens and how to relate them in Agda.</p>
+<p><em>“Ack! The Agda.Builtin.Nat also defines a function named _+_. Can you hide
+_+_ while importing Agda.Builtin.Nat?”</em></p>
+<blockquote>
+<p>Yes, it is possible to hide the <em>+</em> function from the Agda.Builtin.Nat module
+when importing it in your Agda code. To do this, you can use the hiding keyword
+in the open import statement, like this:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Builtin<span class="ot">.</span>Nat <span class="kw">hiding</span> <span class="ot">(_</span>+<span class="ot">_)</span></span></code></pre></div>
+<p>This will import all the symbols from the Agda.Builtin.Nat module except for the
+_+_ function. This allows you to define your own _+_ function without naming
+conflicts with the one from the standard library.</p>
+<p>Alternatively, you can also use the renaming keyword in the open import
+statement to import the _+_ function from the standard library under a different
+name, like this:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Builtin<span class="ot">.</span>Nat <span class="kw">renaming</span> <span class="ot">(_</span>+<span class="ot">_</span> <span class="kw">to</span> plus<span class="ot">)</span></span></code></pre></div>
+<p>This will import the _+_ function from the Agda.Builtin.Nat module and rename it
+to plus, which can then be used in your code without conflicts with your own _+_
+function.</p>
+</blockquote>
+<p>This is a neat side effect of the chat bot. It provided the correct answer in
+this case, and gave me another convenient and related feature in Agda I might
+otherwise not know about.</p>
+<p><em>“Great. Now let’s prove that addition is commutative.”</em></p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>+<span class="ot">_</span> <span class="ot">:</span> ℕ <span class="ot">→</span> ℕ <span class="ot">→</span> ℕ</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>zero + m <span class="ot">=</span> m</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ot">(</span>suc n<span class="ot">)</span> + m <span class="ot">=</span> suc <span class="ot">(</span>n + m<span class="ot">)</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> refl</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>commutative m n<span class="ot">)</span></span></code></pre></div>
+<p>This code is not correct but it does use a pattern we will see come up a few
+times that I will call the “congruence on inductive hypothesis” pattern<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>. It
+is rather common for simple proofs to be defined such that the base case is
+proven by reflexivity (<code>refl</code>), while the inductive case is some simple
+congruence relation (often using a type’s data constructor) on top of the
+inductive hypothesis. ChatGPT will attempt to use this strategy a lot, as we
+shall see.</p>
+<p><em>“This code is not quite correct. Let’s break down the errors one at a time.</em></p>
+<p><em>The first problem is that the first clause can not be proved by reflectivity
+(refl). This clause needs to prove that n ≡ n + 0, but it does not know how to
+do this. Can you define a proof for n ≡ n + 0 named +-identity-r and use it
+correctly in the first clause of commutative?“</em></p>
+<!--
+
+```agda
++-identity-r : ∀ n → n ≡ n + zero
++-identity-r zero = refl
++-identity-r (suc n) = cong suc (+-identity-r n)
+```
+
+-->
+<div class="sourceCode" id="cb8"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Correct! Good job.</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>+-identity-r <span class="ot">:</span> <span class="ot">∀</span> n <span class="ot">→</span> n ≡ n + zero</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>+-identity-r zero <span class="ot">=</span> refl</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>+-identity-r <span class="ot">(</span>suc n<span class="ot">)</span> <span class="ot">=</span> cong suc <span class="ot">(</span>+-identity-r n<span class="ot">)</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n <span class="co">-- Correct use!</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>commutative m n<span class="ot">)</span></span></code></pre></div>
+<p>ChatGPT gets the definition of <code>+-identity-r</code> correct (as an application of the
+“congruence on inductive hypothesis” pattern) and also applied it in the right
+clause. I find it impressive that the bot understood what was meant by a clause
+and correctly modified the implementation, including the correct argument.</p>
+<p><em>“Great work! Now onto the second error.</em></p>
+<p><em>In the second clause, we have accidentally proven suc (m + n) ≡ suc (n + m)
+instead of the desired suc m + n ≡ n + suc m. To complete this proof, we will
+need to show that suc (m + n) ≡ n + suc m.</em></p>
+<p><em>Write a function named suc-distr-right that proves suc (m + n) ≡ m + suc n.”</em></p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- It tried to prove a variant of associativity</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">:</span> <span class="ot">∀</span> m n p <span class="ot">→</span> p + suc <span class="ot">(</span>m + n<span class="ot">)</span> ≡ suc <span class="ot">(</span>p + m<span class="ot">)</span> + n</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>suc-distr-right zero n p <span class="ot">=</span> refl</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">(</span>suc m<span class="ot">)</span> n p <span class="ot">=</span> cong suc <span class="ot">(</span>suc-distr-right m n p<span class="ot">)</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> suc-distr-right m n n <span class="co">-- Incorrect use here :/</span></span></code></pre></div>
+<p>I’m not sure why ChatGPT went on this associativity tangent. Additionally it
+seems that the bot gets a bit too excited to do the clause replacements when it
+defines something new, so it does the replacement of the second clause of
+<code>commutative</code> when it should have not made any modification yet.</p>
+<p><em>“This is unfortunately incorrect. suc-distr-right only takes in two arguments,
+and should prove suc (m + n) ≡ m + suc n.”</em></p>
+<!--
+
+```agda
+suc-distr-right : ∀ m n → suc (m + n) ≡ m + suc n
+suc-distr-right zero n = refl
+suc-distr-right (suc m) n = cong suc (suc-distr-right m n)
+```
+
+-->
+<div class="sourceCode" id="cb10"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> suc <span class="ot">(</span>m + n<span class="ot">)</span> ≡ m + suc n</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>suc-distr-right zero n <span class="ot">=</span> refl</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>suc-distr-right m n<span class="ot">)</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> suc-distr-right m n <span class="co">-- Well it got the number </span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>                                            <span class="co">-- of arguments right.</span></span></code></pre></div>
+<p><em>“This is so close! But the second clause of commutative needs to use both
+suc-distr-right and the induction hypothesis. Can you fix the second clause of
+commutative?”</em></p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>commutative m n<span class="ot">)</span> ∘ suc-distr-right m n</span></code></pre></div>
+<p>This is an interesting attempt: ChatGPT has correctly identified that the
+induction hypothesis is <code>commutative m n</code> and does attempt to connect two things
+together (using function composition <code>_∘_</code>), but this operator connects
+<em>functions</em> not <em>proofs</em>. To combine proofs we will need something else.</p>
+<p>In the meantime I thought I would try to ask ChatGPT where it decided to get the
+compose operator from.</p>
+<p><em>“What is the symbol ∘, and where is it defined?”</em></p>
+<blockquote>
+<p>In Agda, the symbol ∘ is the composition operator, which is used to combine
+two functions or proofs. It is defined in the Agda.Builtin.Function module of
+the standard library.</p>
+</blockquote>
+<p><em>“Not quite, the ∘ operator is imported from Function. It is also not the
+operator you need to prove the second clause of commutative.</em></p>
+<p><em>Can you fix the second clause of commutative? Hint, you need to use the
+trans function.”</em></p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- It includes this import but now doesn't need it.</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="kw">open</span> <span class="kw">import</span> Agda<span class="ot">.</span>Builtin<span class="ot">.</span>Function</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> trans <span class="ot">(</span>suc-distr-right m n<span class="ot">)</span> <span class="ot">(</span>commutative m n<span class="ot">)</span></span></code></pre></div>
+<p>This result is funny: the use of <code>trans</code> is correct but it flipped the
+arguments! It would have been closer to the right answer had it not decided to
+flip the arguments. However, since the <code>_∘_</code> operator operates right to left and
+function calls are left to right, making this flip does make some sense.</p>
+<p>Also somehow we lost the use of the “congruence on induction hypothesis” pattern
+here, which we actually do require!</p>
+<p><em>“Almost! There are three problems in the second clause of commutative.</em></p>
+<ol type="1">
+<li><em>The first and second arguments to trans need to be flipped.</em></li>
+<li><em>The first and second arguments to suc-distr-right need to be flipped.</em></li>
+<li><em>The inductive call to commutative needs to use cong, like you had before.</em></li>
+</ol>
+<p><em>Can you make these three changes for me?“</em></p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> trans <span class="ot">(</span>commutative m n<span class="ot">)</span> <span class="ot">(</span>suc-distr-right n m<span class="ot">)</span> ∘ cong suc</span></code></pre></div>
+<p>Well ChatGPT adds the needed <code>cong suc</code> but attempts to tack it on again using
+function composition 😆. Also it has correctly flipped the arguments to
+<code>suc-distr-right</code> for some reason. Maybe ChatGPT saw the error of its ways!</p>
+<p><em>“So close! The use of cong suc needs to happen before the call to
+commutative.”</em></p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> m + n ≡ n + m</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>commutative zero n <span class="ot">=</span> +-identity-r n</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>commutative <span class="ot">(</span>suc m<span class="ot">)</span> n <span class="ot">=</span> trans <span class="ot">(</span>cong suc <span class="ot">(</span>commutative m n<span class="ot">))</span> <span class="ot">(</span>suc-distr-right n m<span class="ot">)</span></span></code></pre></div>
+<p><em>You got it! Congratulations. Let’s celebrate.</em></p>
+<blockquote>
+<p>Thank you, I’m glad that I was able to help you with this proof. It was a
+challenging problem, but I enjoyed working on it. I hope you found the
+solution to be satisfactory. Is there anything else you would like to learn
+about or discuss? I am here to help you with any questions you may have.</p>
+</blockquote>
+<p><em>Nope, time to party!</em></p>
+<blockquote>
+<p>Great! I’m glad you’re happy with the solution. I hope you have a wonderful
+time celebrating. Thank you for the opportunity to help you with this proof.
+Have a great day!</p>
+</blockquote>
+<h1 id="chatgpt-your-imprecise-editing-friend">ChatGPT, your imprecise editing friend</h1>
+<p>ChatGPT is not versed trained on proofs directly, but rather finds correlations
+between tokens/words. What this exercise mostly ended up boiling down to was
+telling ChatGPT how to make some text edit and then letting it put strings in
+the right place. It often chooses a similar idea to what you want—transitivity
+versus composition, or products versus boolean and—but doesn’t necessarily
+choose the right one. When you can convince it of the right symbols, it
+sometimes decides to edit some other part and make the proposed code farther
+from the solution. Or it will bring back a symbol because it has seen it before,
+even if its original and current use is wrong.</p>
+<p>One interesting catch here is that for this exercise to work, I had to be quite
+careful with the names of functions. For example, in a different chat thread I
+had asked ChatGPT to define proofs like <code>suc-distr-right</code> with the names like
+<code>suc[m+n]≡m+suc[n]</code> (a common trick so I remember what is being proved). But
+this ended up being disastrous: a lot of proofs will add tick marks to variable
+names like so</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> suc <span class="ot">(</span>m + n<span class="ot">)</span> ≡ m + suc n</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>suc-distr-right zero n <span class="ot">=</span> refl</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">(</span>suc m'<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>suc[m+n]≡m+suc[n] m' n<span class="ot">)</span></span></code></pre></div>
+<p>and when the variable names are in the function name, ChatGPT would add tick
+marks into uses of the function name!</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">:</span> <span class="ot">∀</span> m n <span class="ot">→</span> suc <span class="ot">(</span>m + n<span class="ot">)</span> ≡ m + suc n</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>suc-distr-right zero n <span class="ot">=</span> refl</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>suc-distr-right <span class="ot">(</span>suc m'<span class="ot">)</span> n <span class="ot">=</span> cong suc <span class="ot">(</span>suc[m'+n]≡m'+suc[n] m' n<span class="ot">)</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co">--                                          ↑     ↑</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                                       NOOOOOOOOOOOO!!! :(</span></span></code></pre></div>
+<p>My first experiment on this blog post failed because no matter what I did, I
+could not convince ChatGPT to not use tick marks or to stop using them in
+function names.</p>
+<h1 id="merging-formal-methods-and-ai">Merging formal methods and AI</h1>
+<p>This is definitely a fun experiment, but there are other AI systems working more
+directly on attempting to prove properties. For example, Google’s
+<a href="https://ai.googleblog.com/2022/06/minerva-solving-quantitative-reasoning.html">Minerva</a>
+is rather good at handling simple word problems (including some from the
+International Math Olympiad). Minerva stumbles on occasion though, either
+providing an incorrect proof or an incorrect result entirely.</p>
+<p>I am excited by some current developments that involve <a href="https://arxiv.org/pdf/2205.11491.pdf">marrying a proof system
+like Lean with an AI proof search</a>. Much
+of the other work on proving mathematics by AI has been trained with known
+input/output pairings from some trusted oracle; adding a proof system into the
+mix can allow the AI to find new proofs and <em>validate that its answer is sound</em>.
+The AI could still potentially fail on translating some prompt into the correct
+statement to prove (as shown by the original associative definition of
+<code>suc-distr-right</code>), but there might be a way to mitigate this as well.</p>
+<p>To truly aid the working mathematician, an AI assistant would need to propose
+clever creative insights that are not obvious at first but move the proof
+forward. Math often involves finding some interesting mathematical
+transformation or framework to reframe the problem statement into. By performing
+a transformation into another domain, some difficult proofs can become quite a
+bit easier. If AI systems can shift to making some of these creative leaps then
+it will go from a useful tool for reducing proof boilerplate to a true companion
+on a mathematician’s journey to explore the mathematical landscape.</p>
+<h1 id="appendix-proving-chatgpts-set-statements">Appendix: Proving ChatGPT’s set statements</h1>
+<p>Originally ChatGPT gave us some statements that looked roughly similar to
+properties defined on sets. While the results that it produced did not encode
+sets or set operations properly, we can do so in Agda.</p>
+<p>First we can define a set by its membership function. Note here we are not using
+the <code>Set : Set</code> definition; to encode our set definition, we will need to say
+that our set lives within some higher type universe called <code>Set₁</code>.</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- A subset is defined as a predicate on a set:</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- we can view Subset as the elements of Set that</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- satisfy some property.</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>Subset <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">→</span> Set₁</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>Subset A <span class="ot">=</span> A <span class="ot">→</span> <span class="dt">Set</span></span></code></pre></div>
+<p>In the Agda standard library, this is called
+<a href="https://github.com/agda/agda-stdlib/blob/625a5775f0a2b4e56c9904278294e7e7f735b737/src/Relation/Unary.agda#L38">Pred</a>;
+we are making our own (equivalent) definition here to better match what ChatGPT
+was attempting.</p>
+<p>With our definition<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a>, we can now define operators such as <code>∈</code> and <code>⊆</code> on
+sets. This is more useful than just postulating that these operators exist since
+we can now use the definition of these operators when attempting to prove
+properties.</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- We just extract our inclusion function and see if it applies</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- to the element.</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>∈<span class="ot">_</span> <span class="ot">:</span> <span class="ot">{</span>A <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> A <span class="ot">→</span> Subset A <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>a ∈ P <span class="ot">=</span> P a</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="co">-- A value is not in a set if we can prove having that element</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="co">-- in the set would lead to a contradiction.</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>∉<span class="ot">_</span> <span class="ot">:</span> <span class="ot">{</span>A <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> A <span class="ot">→</span> Subset A <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>a ∉ p <span class="ot">=</span> ¬ <span class="ot">(</span>a ∈ p<span class="ot">)</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a><span class="co">-- A subset is just to say that if we find the element in A that</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a><span class="co">-- then we can show we can find it in B too.</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>⊆<span class="ot">_</span> <span class="ot">:</span> <span class="ot">{</span>A <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> Subset A <span class="ot">→</span> Subset A <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>A ⊆ B <span class="ot">=</span> <span class="ot">∀</span> <span class="ot">{</span>x<span class="ot">}</span> <span class="ot">→</span> x ∈ A <span class="ot">→</span> x ∈ B</span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a><span class="co">-- Defines priority of operators in infix notation.</span></span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a><span class="kw">infix</span> <span class="dv">4</span> <span class="ot">_</span>∈<span class="ot">_</span> <span class="ot">_</span>∉<span class="ot">_</span> <span class="ot">_</span>⊆<span class="ot">_</span></span></code></pre></div>
+<p>Now to define a <a href="https://en.wikipedia.org/wiki/Subset">strict subset</a>, we need
+to show that for some sets A and B, there exists at least one element of B that
+is not in A. ChatGPT attempted this with the statement <code>A ⊂ B = A ⊆ B ∧ ¬ (A ∈ B)</code>, but mixed up the symbols that should be used:</p>
+<ol type="1">
+<li>Since we have defined <code>Subset</code> similarly to the way ChatGPT attempted, we
+need to use the product <code>×</code> instead of boolean <code>∧</code>.</li>
+<li>ChatGPT was attempting to say that we need to show something in B is not in
+A. To encode this property, we will need to use an
+<a href="https://plfa.github.io/Quantifiers/">existential</a>.</li>
+</ol>
+<div class="sourceCode" id="cb19"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- A strict subset is a subset with an</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- additional proof that there exists an x such that</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- x is not in the first set.</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="ot">_</span>⊂<span class="ot">_</span> <span class="ot">:</span> <span class="ot">{</span>A <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> Subset A <span class="ot">→</span> Subset A <span class="ot">→</span> <span class="dt">Set</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>A ⊂ B <span class="ot">=</span> <span class="ot">(</span>A ⊆ B<span class="ot">)</span> × ∃[ x ] <span class="ot">(</span>x ∈ B × x ∉ A<span class="ot">)</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="co">--         ↑      └─────────↑──────────┘</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="co">--    Original subset       |</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a><span class="co">--               and the proof that some x in B and is not in A</span></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a><span class="kw">infix</span> <span class="dv">4</span> <span class="ot">_</span>⊂<span class="ot">_</span></span></code></pre></div>
+<p>Finally we can do our proof of transitivity.</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>transitivity <span class="ot">:</span> <span class="ot">∀</span> <span class="ot">{</span>S <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> <span class="ot">{</span>A B C <span class="ot">:</span> Subset S<span class="ot">}</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>             <span class="ot">→</span> A ⊂ B <span class="ot">→</span> B ⊂ C <span class="ot">→</span> A ⊂ C</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>transitivity</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="ot">(</span>A⊆B , <span class="ot">_)</span>                 <span class="co">-- A ⊂ B broken into its pieces</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>  <span class="ot">(</span>B⊆C , x , x∈C , x∉B<span class="ot">)</span>     <span class="co">-- B ⊂ C broken into its pieces</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  <span class="ot">(λ</span> x∈A <span class="ot">→</span> B⊆C <span class="ot">(</span>A⊆B x∈A<span class="ot">))</span> , <span class="co">-- A ⊆ C</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>  <span class="ot">(</span>x , x∈C ,                <span class="co">-- There exist an x such that x ∈ C</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">(λ</span> x∈A <span class="ot">→</span> x∉B <span class="ot">(</span>A⊆B x∈A<span class="ot">)))</span>  <span class="co">-- and x ∉ A by contradiction</span></span></code></pre></div>
+<p>ChatGPT was correct to define A, B, and C as implicit arguments but missed the
+mark on the definition itself. Let’s briefly run through how this works.</p>
+<ol type="1">
+<li><p>First we deconstruct our strict subsets so we can access both their internal
+subset relation and the proof that an element exists in the right set but not
+in the left.</p></li>
+<li><p>In our definition, we need to construct a strict subset as an output. We can
+do this in pieces. We first define our regular subset relation by saying that
+for some <code>x ∈ A</code>, we can derive that <code>x ∈ B</code> using <code>A⊆B</code>, and then finally
+derive x ∈ C using <code>B⊆C</code> on our value of <code>x ∈ B</code>.</p></li>
+<li><p>We now need to prove that some x in C is not in A. To do so, we take the x we
+defined in our <code>B ⊂ C</code> relation and apply it in two ways. First we have to
+show that <code>x ∈ C</code>, which luckily we have a proof of from our <code>B ⊂ C</code>
+argument. Then we need to show that this x we have chosen cannot be in A.</p>
+<p>We will show x is not in A by contradiction (the last line in the code
+block). Say we did have a proof that x was in A (called <code>x∈A</code>). Then using
+our relation <code>A⊆B</code>, we can show that x must be in B. But from our <code>B ⊂ C</code>
+relation, we know that x cannot be in B (from <code>x∉B</code>). And so we have a
+contradiction!</p></li>
+</ol>
+<p>This proof is not incredibly involved, but there are some tricks to know
+involving how to define these relations. I am excited for the day when AI
+tooling can be my partner in finding these proofs, especially if I can get hints
+on where might be a fruitful direction to go. Or even help removing boilerplate
+proof code would be nice!</p>
+<h2 id="comments-questions">Comments, questions?</h2>
+<p>If you have any comments or questions, feel free to do one of the following.</p>
+<ul>
+<li>Contact me at my email, which is this web address with the <code>.</code> after ryan replaced with an <code>@</code>.</li>
+<li>Start a <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/discussions">discussion on my github page</a>.</li>
+<li>Say hi on <a href="https://www.linkedin.com/in/ryan-orendorff/">LinkedIn</a></li>
+</ul>
+<h2 id="acknowledgements">Acknowledgements</h2>
+<p>I would like to thank <a href="https://www.linkedin.com/in/dorendorff/">Delaine
+Orendorff</a> for reviewing drafts of this
+article. Thanks Mom!</p>
+<h2 id="want-to-run-the-code-in-this-blog-post">Want to run the code in this blog post?</h2>
+<p>This blog post is a literate Agda file, meaning you too can check that ChatGPT
+got the right answer! To spin up a nix shell that can load this file, simply run
+<code>nix-shell</code> in <a href="https://github.com/ryanorendorff/ryanorendorff.github.io">this post’s
+directory</a>.</p>
+<section class="footnotes footnotes-end-of-document" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>If someone knows a real name for this I would love to know.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p>The same definition is <a href="https://stackoverflow.com/questions/61037572/how-to-define-the-range-function-on-a-relation-in-agda-set-theory">defined on Stack
+Overflow</a>
+should you want to see more properties being proved on subsets.<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Ryan Orendorff - Dependently typed folds</title>
+        <link rel="stylesheet" href="../../css/default.css" />
+        <link rel="stylesheet" href="../../css/syntax.css" />
+        <meta property="og:title" content="Dependently typed folds" />
+    </head>
+    <body>
+        <header>
+            <div class="logo">
+                <a href="../../">ryan orendorff</a>
+            </div>
+            <nav>
+                <a href="../../archive.html">posts</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <article>
+    <section class="title">
+    Dependently typed folds
+    </section>
+    <section class="subtitle">
+    folds that change type at each step!
+    </section>
+
+    <section class="date">
+        Posted on December 19, 2020
+    </section>
+    <section>
+        <p><!--
+
+This literate file is run through `run.sh`, which imports the clash
+libraries. Note that while the clash libraries exist, the regular GHC
+compiler is used; no circuits are generated from this example.
+
+
+> {-# LANGUAGE GADTs                  #-}
+> {-# LANGUAGE TypeOperators          #-}
+> {-# LANGUAGE DataKinds              #-}
+> {-# LANGUAGE KindSignatures         #-}
+> {-# LANGUAGE TypeFamilies           #-}
+> {-# LANGUAGE RankNTypes             #-}
+> {-# LANGUAGE ScopedTypeVariables    #-}
+> {-# LANGUAGE NoImplicitPrelude      #-}
+>
+> -- Allows us to infer additional constraints from the definition
+> -- Instead of (KnownNat n, KnownNat (n+2)) =>
+> -- we only need (KnownNat n) =>
+> {-# OPTIONS_GHC -fplugin GHC.TypeLits.KnownNat.Solver #-}
+>
+> -- Allows us to equate terms like (a + b) + c and a + (b + c) as the same thing.
+> {-# OPTIONS_GHC -fplugin GHC.TypeLits.Normalise #-}
+>
+> module DependentFold where
+>
+> import Clash.Prelude hiding (foldr, sum, map, dfoldr)
+> import qualified Clash.Prelude as C
+> import Data.Singletons.Prelude (TyFun,Apply,type (@@))
+> import Data.Kind
+> import Data.Proxy
+> import qualified Data.List
+> import Control.Exception
+
+--></p>
+<p>I have been working with dependent types for a bit now, and it really
+changes how I view even the most fundamental of functional operations.
+Dependent types allow us to explore functions where the type of an
+intermediate or output value dynamically changes type depending on the input
+value. We will look at the standard fold functions, and how they take on a
+new meaning in a dependently typed context.</p>
+<h1 id="the-standard-fold">The standard fold</h1>
+<p>In functional programming languages like Haskell, we like to use higher order
+functions as a way to simplify control flow. One of the most ubiquitous
+higher order functions is the fold.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- A right fold. If we unroll the fold, it would look like</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- step x₀ (step x₁ (step x₂ … (step xₙ base)))</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">foldr</span><span class="ot"> ::</span> (a <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> [a] <span class="ot">-&gt;</span> b</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">foldr</span> step base []     <span class="ot">=</span> base</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">foldr</span> step base (x<span class="op">:</span>xs) <span class="ot">=</span> step x (<span class="fu">foldr</span> step base xs)</span></code></pre></div>
+<p>The fold allows us to consume some data structure (a list in this case) one
+element at a time, producing an intermediate result each time an element of
+the structure is passed to the <code>step</code> function. For example, we can convert
+a list into the sum of its elements by using the <code>step</code> function <code>(+)</code> that
+adds the sum of the elements it has already seen to the next element of the
+list to be consumed.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span><span class="ot"> ::</span> (<span class="dt">Num</span> c) <span class="ot">=&gt;</span> [c] <span class="ot">-&gt;</span> c</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span> xs <span class="ot">=</span> <span class="fu">foldr</span> (\value intermediate <span class="ot">-&gt;</span> value <span class="op">+</span> intermediate) <span class="dv">0</span> xs</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co">--                                     └──────────────────┘</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">--                               The new intermediate value after</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                                    each step of the fold.</span></span></code></pre></div>
+<p>To get a better handle on what happens at each step, let’s look at the type
+that GHC will infer given our type signature. When GHC type checks our <code>sum</code>
+function, it attempts to unify all type variables, meaning that the type
+checker looks for types that make sense every place that a type variable is
+used.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">--                    These must be the same type b</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">--                      ↓    ↓     ↓           ↓</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">--       foldr :: (a -&gt; b -&gt; b) -&gt; b -&gt; [a] -&gt; b</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span> xs <span class="ot">=</span> <span class="fu">foldr</span> (\value intermediate <span class="ot">-&gt;</span> value <span class="op">+</span> intermediate) <span class="dv">0</span> xs</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                          ↑          └────────↑─────────┘  ↑ </span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">--                     These must be values of the same concrete type</span></span></code></pre></div>
+<p>If we want to figure out <code>a</code> and <code>b</code> when type checking the <code>sum</code> function,
+we can determine what constraints GHC will use to find the type for each
+type variable. Focusing on the constraints for <code>b</code>, using the notation <code>b ~ constraint</code> to mean “<code>b</code> must satisfy the <code>constraint</code>”<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>, we can derive
+the following.</p>
+<ul>
+<li><code>b ~ Num c =&gt; c</code> (from the base case 0)</li>
+<li><code>b ~ c</code> (from <code>(+)</code>)</li>
+</ul>
+<p>From these constraints, the compiler will determine that <code>b</code> must be a <code>c</code>,
+as <code>c</code> is the only type that satisfies both constraints above.</p>
+<p>Folds have another trick up their sleeve; they can be used to <em>build up a
+new structure</em>. We can define another common higher order function, the
+<code>map</code> function, in terms of <code>foldr</code> to demonstrate this property.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span><span class="ot"> ::</span> (c <span class="ot">-&gt;</span> d) <span class="ot">-&gt;</span> [c] <span class="ot">-&gt;</span> [d]</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span> f xs <span class="ot">=</span> <span class="fu">foldr</span> (\value intermediate <span class="ot">-&gt;</span> f value <span class="op">:</span> intermediate) [] xs</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">--                                       └────────────────────┘</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">--                                  The new intermediate _list_ after</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                                       each step of the fold.</span></span></code></pre></div>
+<p>If we do the same analysis for <code>map</code> as we did with <code>sum</code> to find out what
+the type variables should be</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">--                            These must be the same b</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co">--                            ↓    ↓     ↓           ↓</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">--             foldr :: (a -&gt; b -&gt; b) -&gt; b -&gt; [a] -&gt; b</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span> (<span class="op">+</span> <span class="dv">1</span>) xs <span class="ot">=</span> <span class="fu">foldr</span> (\value intermediate <span class="ot">-&gt;</span> value <span class="op">+</span> <span class="dv">1</span> <span class="op">:</span> intermediate) [] xs</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                                ↑          └──────────↑───────────┘  ↑ </span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co">--                            These must be values of the same concrete type</span></span></code></pre></div>
+<p>we get the following constraints, where <code>c</code> and <code>d</code> come from the map function.</p>
+<ul>
+<li><code>b ~ [d]</code> (from the base case <code>[]</code>)</li>
+<li><code>d ~ c</code> (by unifying <code>c</code> from the input list and the <code>(+ 1)</code> function)</li>
+</ul>
+<p>From these constraints, the Haskell compiler can derive an extra constraint
+that is noteworthy.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>(a <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> b) <span class="op">~</span> c <span class="ot">-&gt;</span> [c] <span class="ot">-&gt;</span> [c] <span class="co">-- (from the step function passed to `foldr`)</span></span></code></pre></div>
+<p>This constraint means that at each step of the fold, a list is given as
+input and a list is returned as output. What is different about this fold
+from the <code>sum</code> case is that the underlying <em>structure</em> of the intermediate
+value in each step of the fold is different. To elaborate a bit more, if we
+take the sum of a list of 64-bit <code>Int</code>s, our intermediate values after each
+invocation of <code>step</code> have the same structure.</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co">--  64 bit Int   64 bit Int</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="co">--       ↓         ↓</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="dt">Num</span> c <span class="ot">=&gt;</span> c <span class="ot">-&gt;</span> c <span class="ot">-&gt;</span> c</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co">--            ↑</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="co">--        64 bit Int</span></span></code></pre></div>
+<p>If we apply <code>map</code> to a list of 64-bit <code>Int</code>s, we have a structure that
+<em>grows</em> in length each time <code>step</code> is called.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co">--     Int         [Int]</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co">--      ∣     of length n + 1!</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="co">--      ↓            ↓</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="ot">step ::</span> c <span class="ot">-&gt;</span> [c] <span class="ot">-&gt;</span> [c]</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="co">--            ↑</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="co">--          [Int]</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="co">--       of length n</span></span></code></pre></div>
+<p>For types that do not keep track of structure (the length of the list),
+there is no difference between how the <code>sum</code> and <code>map</code> folds operate. What
+if we did start keeping track of the structure in the type? Can the <code>sum</code>
+function and the <code>map</code> function still be defined in terms of the same fold
+function?</p>
+<h1 id="dependent-types-enable-types-that-keep-track-of-structure">Dependent types enable types that keep track of structure</h1>
+<p>Dependent types allows us to have the type of some value <em>depend</em> on another
+value. This allows us to define a type similar to a list called <code>Vec</code>
+(short for vector) where the length of the list is encoded in the type. The
+common definition for <code>Vec</code> is as follows<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a>.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Vec</span> (<span class="ot">n ::</span> <span class="dt">Nat</span>) (<span class="ot">a ::</span> <span class="dt">Type</span>) <span class="kw">where</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    <span class="dt">Nil</span><span class="ot"> ::</span> <span class="dt">Vec</span> <span class="dv">0</span> a</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">Cons</span><span class="ot"> ::</span> a <span class="ot">-&gt;</span> <span class="dt">Vec</span> n a <span class="ot">-&gt;</span> <span class="dt">Vec</span> (n <span class="op">+</span> <span class="dv">1</span>) a</span></code></pre></div>
+<p>What does the <code>n :: Nat</code> notation mean? We are saying that the <em>type</em> of the
+input to <code>Vec</code> has a <em>kind</em> named <code>Nat</code>. A kind is essentially the type of a
+type. Types that have a value, such as <code>Int</code>, often have the kind <code>Type</code>,
+while the kind <code>Nat</code> represents the <em>types</em> 0, 1, 2, etc.</p>
+<p>The <code>Vec</code> type<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a> we have defined can have values of type <code>a</code> and must be
+lists of length <code>n</code>. For example, if we have the type <code>Vec 4 Int</code>, we know
+that any values of this type must have four elements and each element must
+be an <code>Int</code>, for a total of 256 bytes of memory used (for 64 bit <code>Int</code>s).</p>
+<p>Given that we are working with objects that are the same as lists, it seems
+reasonable that we can define a fold for <code>Vec</code>.</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- foldr for the Vec type</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ot">vfoldr ::</span> (a <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> <span class="dt">Vec</span> n a <span class="ot">-&gt;</span> b</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>vfoldr step base <span class="dt">Nil</span>           <span class="ot">=</span> base</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>vfoldr step base (x <span class="ot">`Cons`</span> xs) <span class="ot">=</span> step x (vfoldr step base xs)</span></code></pre></div>
+<p>This is precisely the same definition as before; the only component that has
+changed is that we are keeping track of the length of the input <code>Vec</code> and
+the names of the data constructors (<code>Cons</code> instead of <code>:</code>, <code>Nil</code> instead of
+<code>[]</code>). We can define the sum of a vector in the same way as we did on lists.</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vsum ::</span> <span class="dt">Num</span> c <span class="ot">=&gt;</span> <span class="dt">Vec</span> n c <span class="ot">-&gt;</span> c</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>vsum xs <span class="ot">=</span> vfoldr (<span class="op">+</span>) <span class="dv">0</span> xs</span></code></pre></div>
+<p>So we should be able to recreate <code>map</code> using <code>vfoldr</code>, right?</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vmap ::</span> (c <span class="ot">-&gt;</span> d) <span class="ot">-&gt;</span> <span class="dt">Vec</span> n c <span class="ot">-&gt;</span> <span class="dt">Vec</span> n d</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>vmap f xs <span class="ot">=</span> vfoldr (\value intermediate <span class="ot">-&gt;</span> f value <span class="ot">`Cons`</span> intermediate) <span class="dt">Nil</span> xs</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="co">{-</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="co">  • Couldn't match type ‘n’ with ‘0’</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="co">    ‘n’ is a rigid type variable bound by</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="co">      the type signature for:</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="co">        vmap :: forall c d (n :: Nat). (c -&gt; d) -&gt; Vec n c -&gt; Vec n d</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="co">    Expected type: Vec n d</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="co">      Actual type: Vec 0 d</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a><span class="co">-}</span></span></code></pre></div>
+<p>Oh no, what happened?! Let’s look at the constraints that GHC is attempting
+to resolve in this case.</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co">--                            These must be the same b</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="co">--                          ↓    ↓     ↓               ↓</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="co">--          vfoldr :: (a -&gt; b -&gt; b) -&gt; b -&gt; Vec n a -&gt; b</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>vmap f xs <span class="ot">=</span> vfoldr (\value intermediate <span class="ot">-&gt;</span> f value <span class="ot">`Cons`</span> intermediate) <span class="dt">Nil</span> xs</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                              ↑          └────────────↑────────────┘   ↑</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="co">--                            These must be values of the same concrete type</span></span></code></pre></div>
+<ul>
+<li><code>b ~ Vec n d</code> (from the result type of <code>vmap</code>)</li>
+<li><code>b ~ Vec 0 d</code> (from the type of <code>Nil</code>)</li>
+</ul>
+<p>The constraints tell us that GHC wants to show that <code>Vec n d ~ Vec 0 d</code>
+since both types of <code>Vec</code> must are associated with the same type variable
+<code>b</code>. GHC rightly tells us that this is not possible, for it would also have
+to show that <code>n ~ 0</code> for all possible <code>n</code>s. And unfortunately there are more
+natural numbers than just zero!</p>
+<p>There is a second conundrum in the constraints GHC is trying to solve, but
+GHC only reports the first error. To find this error, we need to look at the
+<code>step</code> function types.</p>
+<ul>
+<li><code>(a -&gt; b -&gt; b) ~ c -&gt; Vec n d -&gt; Vec (n + 1) d</code> (from the definition of
+<code>vfoldr</code> and <code>Cons</code>)</li>
+<li><code>b ~ Vec n d</code> (from the second argument type in the first constraint)</li>
+<li><code>b ~ Vec (n + 1) d</code> (from the result type in the first constraint)</li>
+</ul>
+<p>In a dependently typed context, the fold that preserves a structure (<code>vsum</code>)
+is <em>fundamentally different</em> from a fold that can change the structure at
+each step (<code>vmap</code>). This is to say that in the case of <code>vsum</code>, each
+invocation takes and returns the same type for the intermediate value, but
+for the <code>vmap</code> case, the <em>type is different for each intermediate value</em>.
+Luckily, it is possible to define a fold where we provide the compiler some
+information on how the type changes at each step using a <em>dependently typed
+fold</em>.</p>
+<h1 id="defining-the-dependently-typed-fold-on-vectors">Defining the dependently typed fold on vectors</h1>
+<p>To define a dependently typed fold, we need a few pieces first. First we
+need a <em>type level function</em> that tells us what our type should be before
+and after each call to <code>step</code>. We define a convenient name for how many
+steps we have taken so far in the fold</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="dt">StepOfFold</span> <span class="ot">=</span> <span class="dt">Nat</span> <span class="co">-- StepOfFold is a kind</span></span></code></pre></div>
+<p>and then define the <em>kind</em> of the type level function that tells us what
+type we should expect at any step in the fold.</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="dt">StepFunction</span><span class="ot"> ::</span> <span class="dt">StepOfFold</span> <span class="ot">-&gt;</span> <span class="dt">Type</span></span></code></pre></div>
+<p>For example, an instance of <code>StepFunction</code> could be the following function (in
+pseudocode)</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="dt">NatToVec</span><span class="ot"> ::</span> <span class="dt">Type</span> <span class="ot">-&gt;</span> <span class="dt">StepFunction</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="dt">NatToVec</span> a <span class="ot">=</span> \n <span class="ot">-&gt;</span> <span class="dt">Vec</span> n a</span></code></pre></div>
+<p>to which we could apply a specific type <code>a</code> and length <code>n</code> to make a complete
+type<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a>.</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="dt">NatToVec</span> <span class="dt">Int</span> <span class="dv">3</span> <span class="ot">=</span> <span class="dt">Vec</span> <span class="dv">3</span> <span class="dt">Int</span></span></code></pre></div>
+<p>Unfortunately Haskell cannot represent type level functions quite this
+cleanly. The first restriction is that the kind <code>StepFunction</code> has to be
+encoded using the <code>TyFun</code> construct</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="dt">StepFunction</span> <span class="ot">=</span> <span class="dt">TyFun</span> <span class="dt">Nat</span> <span class="dt">Type</span> <span class="ot">-&gt;</span> <span class="dt">Type</span></span></code></pre></div>
+<p>where <code>TyFun Nat Type</code> represents the <code>StepFunction</code> we had previously
+defined and the the <code>-&gt; Type</code> piece is required when returning a data type
+from the type level step function<a href="#fn5" class="footnote-ref" id="fnref5" role="doc-noteref"><sup>5</sup></a>.</p>
+<p>When we are defining a <code>StepFunction</code> function, we often want to keep track
+of an auxiliary type that is constant, for example the <code>a</code> we end up needing
+to define <code>Vec n a</code>. We could use <code>NatToVec</code> to hold onto the type of the
+<code>Vec</code> if we partial apply the function as <code>NatToVec a</code>. However, Haskell’s
+type level functions cannot be partially applied<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a>. Therefore, we must
+store the type we want to use in another type such as <code>HoldMyType</code><a href="#fn7" class="footnote-ref" id="fnref7" role="doc-noteref"><sup>7</sup></a>, and
+use the <code>Apply</code> type family to define the <code>StepFunction</code> function itself.</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co">--                                   StepFunction</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="co">--                          ┌───────────────────────────┐</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">HoldMyType</span> (<span class="ot">a ::</span> <span class="dt">Type</span>) (<span class="ot">f ::</span> <span class="dt">TyFun</span> <span class="dt">Nat</span> <span class="dt">Type</span>)<span class="ot"> ::</span> <span class="dt">Type</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="kw">instance</span> <span class="dt">Apply</span> (<span class="dt">HoldMyType</span> a) nth_step <span class="ot">=</span> <span class="dt">Vec</span> nth_step a</span></code></pre></div>
+<p><code>Apply</code> is a type family instance which allows us to hold onto some types
+before we are passed the current step number, enabling us to bypass the
+problem of no partial type level functions. <code>Apply</code> can be written infix as
+<code>@@</code>; instead of writing</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>(<span class="dt">NatToVec</span> <span class="dt">Int</span>) <span class="dv">3</span> <span class="ot">=</span> <span class="dt">Vec</span> <span class="dv">3</span> <span class="dt">Int</span></span></code></pre></div>
+<p>as we would with a normal value level function, we will write</p>
+<div class="sourceCode" id="cb21"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>(<span class="dt">HoldMyType</span> <span class="dt">Int</span>) <span class="op">@@</span> <span class="dv">3</span> <span class="ot">=</span> <span class="dt">Vec</span> <span class="dv">3</span> <span class="dt">Int</span></span></code></pre></div>
+<p>to determine the type at a particular step.</p>
+<p>With type level functions, we can now define the dependently typed fold. The
+function signature is as follows.</p>
+<div class="sourceCode" id="cb22"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- This function is copied from the Clash library, where it is</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- defined as Clash.Sized.Vector.dfold</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="ot">dfoldr ::</span> <span class="kw">forall</span> p n a <span class="op">.</span> <span class="dt">KnownNat</span> n</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>       <span class="ot">=&gt;</span> <span class="dt">Proxy</span> (<span class="ot">p ::</span> <span class="dt">StepFunction</span>)</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>       <span class="ot">-&gt;</span> (<span class="kw">forall</span> l <span class="op">.</span> <span class="dt">SNat</span> l <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> (p <span class="op">@@</span> l) <span class="ot">-&gt;</span> (p <span class="op">@@</span> (l <span class="op">+</span> <span class="dv">1</span>)))</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>       <span class="ot">-&gt;</span> p <span class="op">@@</span> <span class="dv">0</span></span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>       <span class="ot">-&gt;</span> <span class="dt">Vec</span> n a</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>       <span class="ot">-&gt;</span> p <span class="op">@@</span> n</span></code></pre></div>
+<p>There is a bunch going on in this type signature, so let’s break it down by
+each argument to <code>dfoldr</code>. The first part of the signature is</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ot">dfoldr ::</span> <span class="kw">forall</span> p n a <span class="op">.</span> <span class="dt">KnownNat</span> n <span class="ot">=&gt;</span></span></code></pre></div>
+<p>which specifies the <code>KnownNat</code> constraint for the length of our input vector
+<code>n</code>. This constraint allows us to pass in the type level natural number of
+the input vector into other type level functions through the use of
+<code>snatProxy</code> in the definition.</p>
+<p>The next line</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="dt">Proxy</span> (<span class="ot">p ::</span> <span class="dt">StepFunction</span>)</span></code></pre></div>
+<p>says that our <code>dfoldr</code> function will take in a type level function for how
+to generate the type at each step of the fold. This function is sometimes
+called the <em>motive</em>.</p>
+<p>The next line</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>(<span class="kw">forall</span> l <span class="op">.</span> <span class="dt">SNat</span> l <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> (p <span class="op">@@</span> l) <span class="ot">-&gt;</span> (p <span class="op">@@</span> (l <span class="op">+</span> <span class="dv">1</span>)))</span></code></pre></div>
+<p>is the value level function that takes some input value (of type <code>a</code>), the
+intermediate value we have thus far (of type <code>p @@ l</code> for step <code>l</code>), and
+generates the next intermediate value (of type <code>p @@ (l + 1)</code> for step <code>l + 1</code>). For example, we could have in a function that adds one to the incoming
+element and then combine the result with a vector that is being built up as
+the intermediate value.</p>
+<div class="sourceCode" id="cb26"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ot">step ::</span> <span class="dt">Num</span> a</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>     <span class="ot">=&gt;</span> <span class="dt">SNat</span> l <span class="co">-- The current step number</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>     <span class="ot">-&gt;</span> a</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>     <span class="ot">-&gt;</span> (<span class="dt">HoldMyType</span> a) <span class="op">@@</span> l       <span class="co">-- Vec l a</span></span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>     <span class="ot">-&gt;</span> (<span class="dt">HoldMyType</span> a) <span class="op">@@</span> (l <span class="op">+</span> <span class="dv">1</span>) <span class="co">-- Vec (l + 1) a</span></span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>step l x xs <span class="ot">=</span> (x <span class="op">+</span> <span class="dv">1</span>) <span class="ot">`Cons`</span> xs</span></code></pre></div>
+<p>For this particular step function, we do not need to use <code>l</code> when defining
+the function, as the increase in the step is taken into account in the
+function’s type.</p>
+<p>The last few lines of the <code>dfoldr</code> type are the same base case, input
+vector, and result type as <code>foldr</code>, but with the base and result type
+parameterized by which step of the fold they are related to (<code>0</code> for base,
+<code>n</code> for the end of the fold).</p>
+<div class="sourceCode" id="cb27"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ot">-&gt;</span> p <span class="op">@@</span> <span class="dv">0</span> <span class="co">-- Base case, i.e. the first intermediate value (such as `Nil`)</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="ot">-&gt;</span> <span class="dt">Vec</span> n a  <span class="co">-- The `Vec` to fold over</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a><span class="ot">-&gt;</span> p <span class="op">@@</span> n <span class="co">-- The type after the final step in the fold.</span></span></code></pre></div>
+<p>Now that we have the <code>dfoldr</code> function type, how is it defined?</p>
+<div class="sourceCode" id="cb28"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- If we unroll the dependent fold, it would look like</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- step n x₀ (step (n - 1) x₁ (step (n - 2) x₂ … (step 0 xₙ base)))</span></span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>dfoldr _ step base xs <span class="ot">=</span> go (snatProxy (asNatProxy xs)) xs</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a><span class="ot">    go ::</span> <span class="dt">SNat</span> l <span class="ot">-&gt;</span> <span class="dt">Vec</span> l a <span class="ot">-&gt;</span> (p <span class="op">@@</span> l)</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>    go _         <span class="dt">Nil</span>                       <span class="ot">=</span> base</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>    go step_num (y <span class="ot">`Cons`</span> (<span class="ot">ys ::</span> <span class="dt">Vec</span> z a)) <span class="ot">=</span> </span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> step_num_minus_one <span class="ot">=</span> step_num <span class="ot">`subSNat`</span> d1 <span class="co">-- (d1 is the same as 1)</span></span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>      <span class="kw">in</span>  step step_num_minus_one y (go step_num_minus_one ys)</span></code></pre></div>
+<p>If we look at just the definition of <code>go</code>, we see that it is the same as
+<code>foldr</code> with the minor addition of passing around a natural number using
+<code>SNat</code>. This natural number represents the step we are on; as we go
+recursively deeper into the fold, we decrement this number until we hit
+zero, in which case we return the base case <code>base</code> of type <code>p @@ 0</code>. The
+rest of the <code>snatProxy</code>, <code>asNatProxy</code>, and <code>SNat</code> components are to shepherd
+around the changing step number through each call to <code>go</code>.</p>
+<p>Notice that the motive function <code>p</code> is not used in the definition of
+<code>dfoldr</code>. This is because the function is used only at the type level; a
+value level <code>Proxy</code> object is used to pass around the motive function to
+other functions and has no tangible use as a value.</p>
+<h1 id="can-we-dependently-map-now">Can we dependently map now?</h1>
+<p>We now have all the blocks to define a map function for vectors! We will
+start out by defining the type level step function, which will be the
+same as <code>HoldMyType</code> with a more descriptive name.</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">MapMotive</span> (<span class="ot">a ::</span> <span class="dt">Type</span>) (<span class="ot">f ::</span> <span class="dt">TyFun</span> <span class="dt">Nat</span> <span class="dt">Type</span>)<span class="ot"> ::</span> <span class="dt">Type</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="kw">instance</span> <span class="dt">Apply</span> (<span class="dt">MapMotive</span> a) l <span class="ot">=</span> <span class="dt">Vec</span> l a</span></code></pre></div>
+<p>We can now define the map function by passing in our type step function and
+the normal <code>map</code> value level step function. The <code>forall</code>s are required to
+allow the <code>step</code> type signature to refer to the same <code>c</code> and <code>d</code> that appear
+in the signature for <code>vmap</code><a href="#fn8" class="footnote-ref" id="fnref8" role="doc-noteref"><sup>8</sup></a>.</p>
+<div class="sourceCode" id="cb30"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vmap ::</span> <span class="kw">forall</span> c d n<span class="op">.</span> (<span class="dt">KnownNat</span> n) <span class="ot">=&gt;</span> (c <span class="ot">-&gt;</span> d) <span class="ot">-&gt;</span> <span class="dt">Vec</span> n c <span class="ot">-&gt;</span> <span class="dt">Vec</span> n d</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>vmap f xs <span class="ot">=</span> dfoldr (<span class="dt">Proxy</span><span class="ot"> ::</span> <span class="dt">Proxy</span> (<span class="dt">MapMotive</span> d)) step <span class="dt">Nil</span> xs</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="ot">    step ::</span> <span class="kw">forall</span> step<span class="op">.</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>            <span class="dt">SNat</span> step</span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>         <span class="ot">-&gt;</span> c</span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>         <span class="ot">-&gt;</span> <span class="dt">MapMotive</span> d <span class="op">@@</span> step</span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>         <span class="ot">-&gt;</span> <span class="dt">MapMotive</span> d <span class="op">@@</span> (step <span class="op">+</span> <span class="dv">1</span>)</span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>    step l x xs <span class="ot">=</span> f x <span class="ot">`Cons`</span> xs</span></code></pre></div>
+<p>GHC can infer where to apply the <code>MapMotive</code> function if the definition of
+the step is inlined, leading to a more compact definition.</p>
+<div class="sourceCode" id="cb31"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vmap' ::</span> <span class="kw">forall</span> c d n<span class="op">.</span> (<span class="dt">KnownNat</span> n) <span class="ot">=&gt;</span> (c <span class="ot">-&gt;</span> d) <span class="ot">-&gt;</span> <span class="dt">Vec</span> n c <span class="ot">-&gt;</span> <span class="dt">Vec</span> n d</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>vmap' f xs <span class="ot">=</span> dfoldr</span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>  (<span class="dt">Proxy</span><span class="ot"> ::</span> <span class="dt">Proxy</span> (<span class="dt">MapMotive</span> d))                         <span class="co">-- type level step</span></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>  (\l value intermediate <span class="ot">-&gt;</span> f value <span class="ot">`Cons`</span> intermediate) <span class="co">-- value level step</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">Nil</span> xs</span></code></pre></div>
+<p>So we now have a way to specify <code>vmap</code> that GHC is happy with! Let’s break
+down the constraints GHC reconstructs to be able to verify why this works
+for ourselves. The first problem we had was that the base case passed in had
+a different type than the result (<code>Vec 0 a ~ Vec n a</code>).</p>
+<ul>
+<li><code>p @@ 0 ~ (MapMotive d) @@ 0 ~ Vec 0 d</code></li>
+<li><code>p @@ n ~ (MapMotive d) @@ n ~ Vec n d</code></li>
+</ul>
+<p>This problem does not occur for <code>vmap</code> because we no longer need to unify
+the base and end case; they are distinct types in the dependent fold. What
+about the second problem, where the step function changes the type? For that
+conundrum,</p>
+<ul>
+<li><code>p @@ l ~ (MapMotive d) @@ l ~ Vec l d</code></li>
+<li><code>p @@ (l + 1) ~ (MapMotive d) @@ (l + 1) ~ Vec (l + 1) d</code></li>
+<li><code>SNat l -&gt; a -&gt; p @@ l -&gt; p @@ (l + 1) ~ SNat l -&gt; c -&gt; Vec l d -&gt; Vec (l + 1) d</code>
+(from unifying the step function for <code>dfoldr</code> and the step function
+defined in <code>vmap</code>)</li>
+</ul>
+<p>we can see that the last constraint is consistent between the definition of
+<code>dfoldr</code> and the definition of <code>vmap</code>.</p>
+<h1 id="one-fold-to-rule-them-all">One fold to rule them all</h1>
+<p>The <code>dfoldr</code> fold is a strict superset of <code>vfoldr</code>. To demonstrate this, we
+can define <code>vfoldr_by_dfoldr</code> by returning <em>the same type</em> at each step of
+the fold</p>
+<div class="sourceCode" id="cb32"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">FoldMotive</span> (<span class="ot">a ::</span> <span class="dt">Type</span>) (<span class="ot">f ::</span> <span class="dt">TyFun</span> <span class="dt">Nat</span> <span class="dt">Type</span>)<span class="ot"> ::</span> <span class="dt">Type</span></span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="kw">instance</span> <span class="dt">Apply</span> (<span class="dt">FoldMotive</span> a) l <span class="ot">=</span> a</span></code></pre></div>
+<p>and applying the <code>step</code> function to the fold to both the incoming and
+intermediate value.</p>
+<div class="sourceCode" id="cb33"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vfoldr_by_dfoldr ::</span> <span class="dt">KnownNat</span> n <span class="ot">=&gt;</span> (a <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> <span class="dt">Vec</span> n a <span class="ot">-&gt;</span> b</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>vfoldr_by_dfoldr step base xs <span class="ot">=</span></span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a>  dfoldr (<span class="dt">Proxy</span><span class="ot"> ::</span> <span class="dt">Proxy</span> (<span class="dt">FoldMotive</span> b))</span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>        (\l value intermediate <span class="ot">-&gt;</span> step value intermediate) base xs</span></code></pre></div>
+<p>Finally, we define the sum function using <code>dfoldr</code> via <code>vfoldr_by_dfoldr</code>.</p>
+<div class="sourceCode" id="cb34"><pre class="sourceCode haskell literate"><code class="sourceCode haskell"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ot">vsum_by_dfoldr ::</span> (<span class="dt">KnownNat</span> n, <span class="dt">Num</span> c) <span class="ot">=&gt;</span> <span class="dt">Vec</span> n c <span class="ot">-&gt;</span> c</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>vsum_by_dfoldr <span class="ot">=</span> vfoldr_by_dfoldr (<span class="op">+</span>) <span class="dv">0</span></span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- Ex: vsum_by_dfoldr (1 :&gt; 2 :&gt; 3 :&gt; Nil) == 6</span></span></code></pre></div>
+<p>Since dependently typed folds subsume the standard folds<a href="#fn9" class="footnote-ref" id="fnref9" role="doc-noteref"><sup>9</sup></a>, it would be
+possible to replace all folds with their dependent counterpart. I have
+doubts that this would be a good direction for Haskell; while we can likely
+automatically derive the definition of the standard fold from the dependent
+fold, the developer implementing an instance of the <code>Foldable</code> typeclass
+would now need to use dependent types, which may be a rough barrier
+especially if the developer has no intention for the fold to be used in a
+dependent context.</p>
+<p><!--
+
+What is neat about all these dependent folds is that they codify the notion
+of proof by induction; you can use dependently typed folds to prove
+properties about a program! For example, you could use `dfoldr` to show that
+the `vmap` function, when passed `id`, returns the same list. That is
+something that is much easier to demonstrate in Agda though. I may try to
+demonstrate the proof in Haskell and make that a different post.
+
+--></p>
+<h1 id="comparison-to-a-fully-dependently-typed-language">Comparison to a fully dependently typed language</h1>
+<p>One challenge that came up earlier in the post was the obfuscation of type
+level functions through <code>Proxy</code>, <code>TyFun</code>, <code>Apply</code>. In fully dependent type
+languages such as Agda, there is no distinction between values, types, or
+kinds. This means that when we define a function, we can use it at <em>any
+level</em> in the type hierarchy. We can demonstrate this by reimplementing
+<code>dfoldr</code> in Agda. The type of <code>dfoldr</code> in Agda is</p>
+<div class="sourceCode" id="cb36"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Set is the same as Type in Haskell.</span></span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- Agda needs the specific type `a` passed in; the curly</span></span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- braces allow us to omit the types if the Agda compiler</span></span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a><span class="co">-- can figure the types out automatically.</span></span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>dfoldr <span class="ot">:</span> <span class="ot">{</span>a <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> <span class="ot">{</span>n <span class="ot">:</span> Nat<span class="ot">}</span></span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> <span class="ot">(</span>p <span class="ot">:</span> Nat <span class="ot">→</span> <span class="dt">Set</span><span class="ot">)</span> <span class="co">-- Motive</span></span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> <span class="ot">((</span>l <span class="ot">:</span> Nat<span class="ot">)</span> <span class="ot">→</span> a <span class="ot">→</span> p l <span class="ot">→</span> p <span class="ot">(</span><span class="dv">1</span> + l<span class="ot">))</span> <span class="co">-- step function</span></span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> p <span class="dv">0</span> <span class="co">-- base case</span></span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> Vec a n</span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> p n</span></code></pre></div>
+<p>where the motive function <code>p</code> can be defined directly without the use of
+<code>Proxy</code>, and applied without a special operator (<code>@@</code>). The definition of
+<code>dfoldr</code> really demonstrates just how similar the regular and dependently
+typed fold are.</p>
+<div class="sourceCode" id="cb37"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>dfoldr <span class="ot">{</span>n <span class="ot">=</span> <span class="dv">0</span><span class="ot">}</span>       p step base []       <span class="ot">=</span> base</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>dfoldr <span class="ot">{</span>n <span class="ot">=</span> suc n-1<span class="ot">}</span> p step base <span class="ot">(</span>x ∷ xs<span class="ot">)</span> <span class="ot">=</span> step n-1 x <span class="ot">(</span>dfold p step base xs<span class="ot">)</span></span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- suc n == 1 + n</span></span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- List version for comparison; ∷ and [] can be used for either</span></span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a><span class="co">-- List or Vec, where the type is inferred by context.</span></span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>foldr <span class="ot">:</span> <span class="ot">{</span>a b <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">-&gt;</span> <span class="ot">(</span>a <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> b<span class="ot">)</span> <span class="ot">-&gt;</span> b <span class="ot">-&gt;</span> List a <span class="ot">-&gt;</span> b</span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>foldr step base []       <span class="ot">=</span> base</span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a>foldr step base <span class="ot">(</span>x ∷ xs<span class="ot">)</span> <span class="ot">=</span> step x <span class="ot">(</span>foldr step base xs<span class="ot">)</span></span></code></pre></div>
+<p>The only difference between the dependently typed fold on vectors and the
+fold on lists is passing around the type level step number <code>n</code> and the
+motive <code>p</code>. The <code>subSNat</code> function in the Haskell <code>dfoldr</code> is replaced by
+induction on <code>n</code>; a <code>n + 1</code> is passed into <code>dfoldr</code> and <code>n</code> is passed down to
+the recursive call.</p>
+<p>We can define the map function as well. The first step is to define the
+motive function</p>
+<div class="sourceCode" id="cb38"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>map<span class="ot">_</span>motive <span class="ot">:</span> <span class="dt">Set</span> <span class="ot">-&gt;</span> Nat <span class="ot">-&gt;</span> <span class="dt">Set</span></span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a>map<span class="ot">_</span>motive a l <span class="ot">=</span> Vec a l</span></code></pre></div>
+<p>and then pass this function into <code>dfoldr</code> by <em>partially applying</em> it with the
+type of the output vector.</p>
+<div class="sourceCode" id="cb39"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>vmap <span class="ot">:</span> <span class="ot">{</span>c d <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">→</span> <span class="ot">{</span>n <span class="ot">:</span> ℕ<span class="ot">}</span> <span class="ot">→</span> <span class="ot">(</span>c <span class="ot">→</span> d<span class="ot">)</span> <span class="ot">→</span> Vec c n <span class="ot">→</span> Vec d n</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>vmap <span class="ot">{</span>c<span class="ot">}</span> <span class="ot">{</span>d<span class="ot">}</span> <span class="ot">{</span>n<span class="ot">}</span> f xs <span class="ot">=</span> dfoldr <span class="ot">(</span>map<span class="ot">_</span>motive d<span class="ot">)</span> <span class="ot">(λ</span> <span class="ot">_</span> x xs <span class="ot">→</span> f x ∷ xs<span class="ot">)</span> [] xs</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a><span class="co">--                                   ↑</span></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a><span class="co">--                      map_motive is partially applied,</span></span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a><span class="co">--                      leading to a Nat → Set function</span></span></code></pre></div>
+<p>Fully dependent type languages like Agda allow for type level shenanigans to
+be defined much more clearly because there is no difference between defining
+a type level and value level function. In fact, a function can often be used
+at any level of the type hierarchy; the <code>+</code> function can be used on <code>Nat</code>
+values, on <code>Nat</code> types, on <code>Nat</code> kinds, and beyond<a href="#fn10" class="footnote-ref" id="fnref10" role="doc-noteref"><sup>10</sup></a>!</p>
+<p>To get the same functionality in Haskell, we had to go through quite a bit
+of extension gymnastics.</p>
+<ul>
+<li><code>GADTs</code> to define <code>Vec</code>.</li>
+<li><code>TypeOperators</code> to be able to use <code>+</code> on the type level.</li>
+<li><code>DataKinds</code> to be able to define type level <code>Nat</code>.</li>
+<li><code>KindSignatures</code> to be able to write out <code>n :: Nat</code> as a kind.</li>
+<li><code>TypeFamilies</code> to be able to define an instance of <code>Apply</code></li>
+<li><code>RankNTypes</code> to require that the step function passed to <code>dfoldr</code> works
+for all steps (the <code>forall l.</code> part of the <code>dfoldr</code> definition).</li>
+<li><code>ScopedTypeVariables</code> to be able to reference the same <code>c</code> and <code>d</code> in our
+<code>step</code> function as in the top level <code>vmap</code> function.</li>
+</ul>
+<p>Haskell’s dependent type features are exciting; they represent a way to use
+dependent types in a mainstream language while keeping all of the current
+libraries that exist in Hackage. The current developer experience of using
+dependent types is a tad challenging, but as dependent types become more
+fleshed out in Haskell the experience should improve.</p>
+<h2 id="comments-questions">Comments, questions?</h2>
+<p>If you have any comments or questions, feel free to do one of the following.</p>
+<ul>
+<li>Contact me at my email, which is this web address with the <code>.</code> after ryan replaced with an <code>@</code>.</li>
+<li>Start a <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/discussions">discussion on my github page</a>.</li>
+<li>Say hi on <a href="https://www.linkedin.com/in/ryan-orendorff/">LinkedIn</a></li>
+</ul>
+<h2 id="acknowledgements">Acknowledgements</h2>
+<p>I would like to thank Daniel Hensley and Jon Thacker for reviewing drafts of
+this article.</p>
+<h2 id="want-to-run-the-code-in-this-blog-post">Want to run the code in this blog post?</h2>
+<p>This blog post is a <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/blob/main/src/posts/2020-12-19-dependent-fold/DependentFold.lhs">literate haskell file</a> that you can run to play around with the topics discussed in the post. There is an included <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/blob/main/src/posts/2020-12-19-dependent-fold/run.sh">run.sh</a> script that will run the code in the post without needing to install anything; the run script requires that <a href="https://nixos.org">Nix</a> is installed.</p>
+<p><!--
+
+> testVector :: Vec 3 Int
+> testVector = 1 :> 2 :> 3 :> Nil
+
+> test :: Bool -> String -> IO ()
+> test b s = if b then return () else (putStrLn s >> return ())
+
+> -- Basic testing here just to make sure the functions are somewhat sanely
+> -- implemented
+> main :: IO ()
+> main = do
+>   test (sum [1, 2, 3] == 6)
+>     "Definition of `sum` is failing"
+>   test (vmap (\x -> x + 3) testVector == 4 :> 5 :> 6 :> Nil)
+>     "Definition of `vmap` is failing"
+>   test (vsum_by_dfoldr testVector == 6)
+>     "Definition of `vsum_by_dfoldr` is failing"
+>   print "Run complete"
+
+--></p>
+<section class="footnotes footnotes-end-of-document" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>GHC will probably find slightly different constraints to solve; these
+equations were chosen for pedagogical purposes.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p>More info on GADT syntax can be found here:
+<a href="https://typeclasses.com/ghc/gadt-syntax">https://typeclasses.com/ghc/gadt-syntax</a><a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3" role="doc-endnote"><p>More accurately we would say that <code>Vec</code> is an <em>indexed type family</em>
+that is <em>parameterized</em> by the type <code>a</code> and <em>indexed</em> by the natural
+number <code>n</code>.<a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn4" role="doc-endnote"><p>“Complete” here means that the type has kind <code>Type</code>. All types that
+hold a value during runtime must have the kind <code>Type</code>.<a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn5" role="doc-endnote"><p>The reasoning here is the same as the prior note; types that
+eventually hold a value must end in <code>-&gt; Type</code>. This is described in the
+paper “<a href="https://dl.acm.org/doi/pdf/10.1145/2775050.2633361?casa_token=5vHGXkO_9oUAAAAA%3ArWVg64659TviMuKE6mKuX71BvlyS9f6c_Kefe0_QNcRqCTGKh_3YglKeXOVun3p4rkbHom4EoFYCPw">Promoting Functions to Type Families in Haskell</a>” by Richard Eisenberg.<a href="#fnref5" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn6" role="doc-endnote"><p>All type level functions must be complete in the sense that all
+arguments have been given to the type level function when it is called.<a href="#fnref6" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn7" role="doc-endnote"><p>Or beer :-D<a href="#fnref7" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn8" role="doc-endnote"><p>Haskell is a bit strange with the type level function. If <code>MapMotive</code>
+is passed anything specified in the <code>forall</code> that is not <code>d</code>, it will
+correctly comment that argument passed to <code>MapMotive</code> does not unify
+with the other types. However, it will happily accept any other
+unspecified type variable. My assumption here is that if a new variable
+is introduced (say <code>δ</code>), it will implicitly add the <code>forall δ_new_identifier</code> quantification with a new identifier during type
+inference (as to not alias with an existing δ) and then conclude
+<code>δ_new_identifier ~ d</code> as the only way to make the types unify.
+Dependent languages similar to Haskell like Agda will not automatically
+universally quantify a stray type variable for you as generalized type
+inference is undecidable in a dependently typed context (see
+<a href="https://cs.stackexchange.com/a/12957">https://cs.stackexchange.com/a/12957</a>).<a href="#fnref8" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn9" role="doc-endnote"><p>There is a version of dependent fold for lists as well, which can be demonstrated in Agda as follows.</p>
+<div class="sourceCode" id="cb35"><pre class="sourceCode agda"><code class="sourceCode agda"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>dfoldr <span class="ot">:</span> <span class="ot">{</span>a <span class="ot">:</span> <span class="dt">Set</span><span class="ot">}</span> <span class="ot">{</span>p <span class="ot">:</span> List a <span class="ot">→</span> <span class="dt">Set</span><span class="ot">}</span></span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> <span class="ot">((</span>x <span class="ot">:</span> a<span class="ot">)</span> <span class="ot">→</span> <span class="ot">{</span>xs <span class="ot">:</span> List a<span class="ot">}</span> <span class="ot">→</span> p xs <span class="ot">→</span> p <span class="ot">(</span>x ∷ xs<span class="ot">))</span></span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> p []</span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> <span class="ot">(</span>l <span class="ot">:</span> List a<span class="ot">)</span></span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>       <span class="ot">→</span> p l</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>dfoldr step base []       <span class="ot">=</span> base</span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>dfoldr step base <span class="ot">(</span>x ∷ xs<span class="ot">)</span> <span class="ot">=</span> step x <span class="ot">(</span>dfoldr step base xs<span class="ot">)</span></span></code></pre></div>
+<p>The Agda variant uses a value level list reflected into the type (both for <code>l</code> and <code>xs</code>), which is hard/potentially not possible to do in Haskell at the moment.<a href="#fnref9" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn10" role="doc-endnote"><p>In Haskell, the hierarchy of objects is <code>values -&gt; types -&gt; kinds -&gt; sorts</code>. Languages like Agda take this further and define a <em>universe</em>
+type hierarchy, which is indexed by a natural number. Specifically, in
+Agda the hierarchy is <code>Set₀ -&gt; Set₁ -&gt; Set₂ -&gt; …</code><a href="#fnref10" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

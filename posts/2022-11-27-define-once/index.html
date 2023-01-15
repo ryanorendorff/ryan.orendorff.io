@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Ryan Orendorff - Make a python function definition stick!</title>
+        <link rel="stylesheet" href="../../css/default.css" />
+        <link rel="stylesheet" href="../../css/syntax.css" />
+        <meta property="og:title" content="Make a python function definition stick!" />
+    </head>
+    <body>
+        <header>
+            <div class="logo">
+                <a href="../../">ryan orendorff</a>
+            </div>
+            <nav>
+                <a href="../../archive.html">posts</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <article>
+    <section class="title">
+    Make a python function definition stick!
+    </section>
+    <section class="subtitle">
+    A terrible hack that ends up being surprisingly useful
+    </section>
+
+    <section class="date">
+        Posted on November 27, 2022
+    </section>
+    <section>
+        <p>Sometimes we have a function that takes a while, and we want to use just-in-time
+compilation to make the function faster.
+<a href="https://numba.readthedocs.io/en/stable/user/jit.html">Numba</a> will compile the
+function lazily in this case: only when it is first called will the function be
+optimized.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> numba <span class="im">import</span> jit</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="at">@jit</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> function_that_takes forever(<span class="op">*</span>args, <span class="op">**</span>kwargs):</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># do some long computation</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result</span></code></pre></div>
+<p>This is an excellent way to reduce compute time when making a repeated calls to
+slow function. Excited with this technique, we implement some long running
+function in some type of Python REPL (my favorite at the moment is ptpython) we
+are analyzing data in and slap the <code>jit</code> decorator on top.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="at">@jit</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> long_running_repl_function(<span class="op">*</span>args, <span class="op">**</span>kwargs):</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Now our notebook will no longer take forever to run!</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result</span></code></pre></div>
+<p>We use this new function with reckless abandon in our code, and it significantly
+reduce the time it takes our code to run in our REPL. At some point we press the
+up arrow to get to our old blocks of code, rerun then with enter, and…</p>
+<p>and it now takes <em>forever</em> to run the function the first time. What happened?!</p>
+<h1 id="functions-are-redefined-every-time">Functions are redefined every time</h1>
+<p>When using a REPL, the code in a block is rerun every time we execute that
+block. The definitions in the block being run <a href="https://www.mikulskibartosz.name/python-memory-management-in-jupyter-notebook/">are assigned to the global
+namespace in the running python
+interpreter</a>.
+Put another way, we can think of running a block as the following pseudocode.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Before running a block, we can find all globally defined</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># variables in the `globals()` dictionary. This will include</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co"># a pointer to all of our defined functions, plus potentially a</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co"># bunch of stuff that our REPL may keep track of like `In` and</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co"># `Out` blocks in something like ipython or ptpython.</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>before <span class="op">=</span> <span class="bu">globals</span>()</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Take the source code in the block as a string called `block_str`.</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Anything defined in the block string will be merged into the </span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co"># `globals()` dictionary.</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="bu">exec</span>(block_str)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="co"># The globals dictionary should now be modified with whatever was</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="co"># defined within `block_str`.</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>after <span class="op">=</span> <span class="bu">globals</span>()</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="co"># The following equation relates the two dictionaries</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="co"># (minus some jupyter bookkeeping)</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="co">#     after = before | top_level_definitions(block_str)</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="co">#</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="co"># where `|` is the dictionary merge operator from Python 3.9 and</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="co"># `top_level_defintions` returns the top level definitions in the</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="co"># string along with the associated function pointers created by `exec`.</span></span></code></pre></div>
+<p>The reason the <code>jit</code> decorator does not seem to work is that when we run a block,
+a <em>new function with the same name</em> gets created and replaces the existing
+function in the global namespace. We lose track of our first jitted function!</p>
+<h1 id="but-all-is-not-lost">But all is not lost!</h1>
+<p>For the <code>jit</code> decorator to working even after running the block that defines
+the desired function multiple times, we need to keep track of the original
+function with the jit attached and ignore the new function created when the
+block is run again. Conveniently, the <code>globals()</code> dictionary gives us access to
+the global namespace, enabling us to see if a function with a given name already
+exists and hold onto the original definition instead of the new (likely
+equivalent) definition. The name of a function can be looked up through the
+<code>__name__</code> property, so we can define the following decorator<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> to find the
+existing function and keep it.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sticky_definition_first_try(f):</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Here we try to find the function in the global</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># namespace. If it does not exist, return the </span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># newly defined function.</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">globals</span>().get(f.<span class="va">__name__</span>, f)</span></code></pre></div>
+<p>Now we can decorate our function with <code>sticky_definition_first_try</code> once it is
+jitted to prevent subsequent reruns of a block from clearing out our optimized
+function.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="at">@sticky_definition_first_try</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="at">@jit</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> long_running_repl_function(<span class="op">*</span>args, <span class="op">**</span>kwargs):</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Now our notebook will no longer take forever to run!</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result</span></code></pre></div>
+<p>Now we can go back to merrily coding in our REPL without worrying about
+recomputing expensive results.</p>
+<p>At some point, we realize our <code>long_running_repl_function</code> has a bug. No
+problem, we can go back and fix the function and go back to the task at hand.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="at">@sticky_definition_first_try</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="at">@jit</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> long_running_repl_function(<span class="op">*</span>args, <span class="op">**</span>kwargs):</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Now our notebook will no longer take forever to run!</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># We were missing a constant 5 from our results. Fixed now!</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result <span class="op">+</span> <span class="dv">5</span></span></code></pre></div>
+<p>We rerun the block defining <code>long_running_repl_function</code> and all the blocks
+that need this function. But we are getting the same resulting buggy results as
+before. Hmm, what is going on?</p>
+<h1 id="since-we-only-define-a-function-once-we-cant-modify-it">Since we only define a function once, we can’t modify it!</h1>
+<p>Our strategy for preventing a function from being redefined is a tad too strong:
+it only keeps track of the first definition of the code, meaning we can never
+alter that definition. It would be amazing if we could write perfect code so
+that we would not need to redefine a function, but alas we are human. What the
+<code>sticky_definition</code> function should really be doing is detecting <em>if the function
+meaningfully changes</em>, and if it does, to accept the new definition
+(invalidating the old jit in the process).</p>
+<p>What we would really like is a representation of only the computational bits of
+the function, which we could then use to compare the existing implementation of
+a function from the redefinition from a function. Luckily we can extract the
+<a href="https://en.wikipedia.org/wiki/Abstract_syntax_tree">abstract syntax tree (AST)</a>
+for a function in python using the <code>ast</code> module in the standard library. The AST
+is the data structure that represents the program after it has been parsed from
+its text origins, retaining only the computationally relevant bits.</p>
+<p>We can define our <code>sticky_definition</code> function to compare the AST of a functions and
+its redefinition and only accept the redefinition if it does something
+meaningfully different<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a> (with generous help from StackOverflow).</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> ast</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> inspect</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> hashlib</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="co"># From https://stackoverflow.com/questions/49998161/how-can-i-hash-the-body-of-a-python-function</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="co"># with light editing</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> _remove_docstring(node):</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> (<span class="bu">isinstance</span>(node, ast.FunctionDef) <span class="kw">or</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>            <span class="bu">isinstance</span>(node, ast.ClassDef)):</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(node.body) <span class="op">!=</span> <span class="dv">0</span>:</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>        docstr <span class="op">=</span> node.body[<span class="dv">0</span>]</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (<span class="bu">isinstance</span>(docstr, ast.Expr) <span class="kw">and</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>            <span class="bu">isinstance</span>(docstr.value, ast.Str):</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>            node.body.pop(<span class="dv">0</span>)</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a><span class="co"># From https://stackoverflow.com/questions/49998161/how-can-i-hash-the-body-of-a-python-function</span></span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="co"># with light editing</span></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> hash_function(func):</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>    func_str <span class="op">=</span> inspect.getsource(func)</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>    module <span class="op">=</span> ast.parse(func_str)</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">assert</span> (<span class="bu">len</span>(module.body) <span class="op">==</span> <span class="dv">1</span> <span class="kw">and</span></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>            <span class="bu">isinstance</span>(module.body[<span class="dv">0</span>], ast.FunctionDef))</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Clear all the doc strings</span></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> node <span class="kw">in</span> ast.walk(module):</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>        _remove_docstring(node)</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Convert the ast to a string for hashing</span></span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>    ast_str <span class="op">=</span> ast.dump(module, annotate_fields<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Produce the hash</span></span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>    fhash <span class="op">=</span> hashlib.sha256(ast_str)</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>    result <span class="op">=</span> fhash.hexdigest()</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result</span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sticky_definition(f):</span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>    <span class="co"># function was not defined before, just return the new function.</span></span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> f.<span class="va">__name__</span> <span class="kw">not</span> <span class="kw">in</span> <span class="bu">globals</span>():</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> f</span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>    global_f <span class="op">=</span> <span class="bu">globals</span>()[f.<span class="va">__name__</span>]</span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> hash_function(f) <span class="op">==</span> hash_function(global_f)</span>
+<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Return the original function, ignoring the new definition</span></span>
+<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a>        <span class="co"># of `f` ONLY IF the source code is unchanged.</span></span>
+<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> global_f</span>
+<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Otherwise, the function does not already exist with the same</span></span>
+<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>        <span class="co"># source code and we should assign the function to the</span></span>
+<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>        <span class="co"># global namespace.</span></span>
+<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> f </span></code></pre></div>
+<p>And with this version of <code>sticky_definition</code> we can</p>
+<ul>
+<li>use the advantages of a stateful decorator like <code>jit</code> in our Python
+REPL, even after rerunning a block,</li>
+<li>reduce the number of cases where we have no jitted result, and</li>
+<li>are immune to syntactic changes like docstrings or comments causing a jit
+miss.</li>
+</ul>
+<h1 id="is-there-a-more-general-way-to-detect-a-meaningful-change">Is there a more general way to detect a “meaningful” change?</h1>
+<p>A natural question after using the AST to compare two functions is whether this
+method also redefines a function too often, much like our source code comparison
+method was too strict with its understanding of what a “meaningful” change was.
+Is there a more general definition of a “meaningful” change that we should be
+looking for?</p>
+<p>One more general definition is if our original function and its redefinition
+always return the same output for a given input, then we can consider no
+meaningful change has been made in the redefinition. For example, we can define
+a function in two ways that produce the same result.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> definition_one(a: <span class="bu">int</span>) <span class="op">-&gt;</span> <span class="bu">int</span>:</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> a <span class="op">+</span> <span class="dv">5</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> definition_two(a: <span class="bu">int</span>) <span class="op">-&gt;</span> <span class="bu">int</span>:</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">5</span> <span class="op">+</span> a</span></code></pre></div>
+<p>Since these two definitions should generate the same jit, we can consider them
+equivalent. This definition of equality is called <a href="https://en.wikipedia.org/wiki/Extensionality">function
+extensionality</a>: if for all inputs
+<span class="math inline"><em>x</em></span> we can show that, for two functions <span class="math inline"><em>f</em></span> and <span class="math inline"><em>g</em></span> that <span class="math inline"><em>f</em>(<em>x</em>) = <em>g</em>(<em>x</em>)</span>, then we
+can say that <span class="math inline"><em>f</em></span> and <span class="math inline"><em>g</em></span> are extensionally equal. Our AST comparison we used for
+function equivalence was an <em>intensional equality</em>: two functions were equal if
+they were syntactically equal for a given definition of syntaxes being equal. In
+this case, we defined the syntaxes as being equal if the AST was the same.</p>
+<p>Function extensionality seems to be a good way to decide if two functions are
+equivalent, so why did we not use that? Well there are two main reasons I can
+think of. The simpler problem is that if we redefine the function to be far more
+computationally efficient, then we would be ignoring this more efficient
+definition since the input/output mapping is the same.</p>
+<p>More importantly though, in general it is difficult to determine if two
+functions are extensionally equivalent except for in very specific cases,
+especially in languages such as Python<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a>. One could attempt to recognize some
+ASTs as equivalent through rules that recognize some equivalent transformations.
+For example, a rule could detect that <code>a + b</code> is the same as <code>b + a</code>. It would
+be difficult to come up with a set of rules that encapsulated the right
+definition of a meaningful difference between two ASTs, likely taking far more
+time than just rerunning the expensive computation. In addition, I would argue
+that when we edit code that changes the AST that we are usually making
+meaningful changes, so we are unlikely to redfine a function more than we really
+want to in practice.</p>
+<p>Should one really want to extend the definition of equality, then
+<a href="https://en.wikipedia.org/wiki/Satisfiability_modulo_theories">Satisfiability modulo theories
+(SMT)</a> solvers
+can be used to symbolically reason about programs. Using such tools, one can
+determine equality of two functions by asking if there is some <a href="https://en.wikipedia.org/wiki/Symbolic_execution">symbolic
+assignment</a> applied to both
+functions that returns an unequal result. Tools such as
+<a href="https://crux.galois.com/">Crux</a> from Galois or the work from the <a href="https://lsd.ucsc.edu/">Languages,
+Systems, and Data Lab @ UCSC</a> use this technique to prove
+that a function implements a certain specification, such as <a href="https://www.youtube.com/watch?v=dCNQFHjgotU">producing
+equivalent outputs as a less efficient
+function</a>. Normal testing is
+insufficient in this case as it is often not possible to try every input to a
+function, meaning it is possible to miss a bug arising from an edge case.<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a></p>
+<h1 id="should-we-do-this">Should we do this?</h1>
+<p>This approach to preserving a jit is definitely a hack: we are altering how
+functions are assigned to a global namespace. Anytime code that pulls out the
+<code>ast</code> module, the <code>inspect</code> module, or the <code>globals</code> function is likely doing
+something that is probably gross—if we are using all three, then we should
+definitely rethink what we are doing! This idea should not be used in actual
+production code.</p>
+<p>However, for prototyping (including in places like a REPL) this method enables
+us to quickly enable decorators with state (such as <code>jit</code>) without trying a
+more canonical solution such as persistent storage. Sometimes coming up with
+that robust saving state challenge can take quite a while in its own right!</p>
+<h1 id="references">References</h1>
+<p>This type of idea has been done a few different times in the public literature.</p>
+<ul>
+<li>There are <a href="https://stackoverflow.com/a/321334">many</a>
+<a href="https://stackoverflow.com/questions/3948873/prevent-function-overriding-in-python">ways</a>
+to
+<a href="https://stackoverflow.com/questions/31700406/how-to-prevent-overwritting-python-built-in-function-by-accident">accomplish</a>
+this
+<a href="https://stackoverflow.com/questions/49998161/how-can-i-hash-the-body-of-a-python-function">task</a>,
+including methods that compare <a href="https://stackoverflow.com/questions/32287885/caching-functions-in-python-to-disk-with-expiration-based-on-version">function
+contents</a>.
+There are other methods for mucking with <a href="https://stackoverflow.com/questions/49076566/override-globals-in-function-imported-from-another-module">globals lookup inside a
+function</a>,
+including <a href="https://stackoverflow.com/questions/10388411/possible-to-globally-replace-a-function-with-a-context-manager-in-python">disabling functions deep inside other
+code</a>.
+In general all of these methods should be used <em>very carefully</em> and likely not
+in production code (as every stack overflow post mentions).</li>
+<li>In a fascinating twist, one <a href="https://bugs.python.org/issue13678">python bug
+report</a> asked for a similar prevention of
+overriding implemented in Python itself!</li>
+<li>There is a <a href="https://github.com/omegacen/python-compare-ast">python package</a>
+for comparing ASTs.</li>
+<li>There is a
+<a href="https://repositorio.uniandes.edu.co/bitstream/handle/1992/44754/u830947.pdf?sequence=1">thesis</a>
+discussing comparing many more methods for comparing Python ASTs.</li>
+</ul>
+<h2 id="comments-questions">Comments, questions?</h2>
+<p>If you have any comments or questions, feel free to do one of the following.</p>
+<ul>
+<li>Contact me at my email, which is this web address with the <code>.</code> after ryan replaced with an <code>@</code>.</li>
+<li>Start a <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/discussions">discussion on my github page</a>.</li>
+<li>Say hi on <a href="https://www.linkedin.com/in/ryan-orendorff/">LinkedIn</a></li>
+</ul>
+<h2 id="acknowledgements">Acknowledgements</h2>
+<p>I would like to thank <a href="https://curious.software/plr/">Patrick Redmond</a> and
+<a href="http://spencerpoff.com/">Spencer Poff</a> for reviewing drafts of this article.</p>
+<h2 id="want-to-run-the-code-in-this-blog-post">Want to run the code in this blog post?</h2>
+<p>A python environment can be spun up using <a href="https://nixos.wiki/wiki/Development_environment_with_nix-shell">nix
+shell</a> in this
+posts <a href="https://github.com/ryanorendorff/ryanorendorff.github.io/blob/main/src/posts/2022-11-27-define-once">root
+directory</a>.
+Play around with different definitions for comparing functions and see what
+kinds of tradeoffs you encounter.</p>
+<section class="footnotes footnotes-end-of-document" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>A decorator is just a higher order function (a function that takes another
+function as an argument).<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p>See references for examples of performing this type of AST comparison.<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3" role="doc-endnote"><p>There are some programming languages such as
+<a href="https://dhall-lang.org/">Dhall</a> which have a more generic way of comparing
+functions through strong normalization.<a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn4" role="doc-endnote"><p>Thanks Patrick Redmond for suggesting expanding the section on ways to
+evaluate function equivalence.<a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>
